@@ -8,7 +8,7 @@ Phoenix
 
 Phoenix most often refers to:
 
-    [Phoenix (mythology)](http://en.wikipedia.org/wiki/Phoenix_(mythology)), a mythical bird
-    [Phoenix, Arizona](http://en.wikipedia.org/wiki/Phoenix,_Arizona), United States
+*[Phoenix (mythology)](http://en.wikipedia.org/wiki/Phoenix_(mythology)), a mythical bird
+*[Phoenix, Arizona](http://en.wikipedia.org/wiki/Phoenix,_Arizona), United States
 
 In this case, Phoenix is the name of a system that uses the LTTM for disambiguating links found in Wikipedia articles.
