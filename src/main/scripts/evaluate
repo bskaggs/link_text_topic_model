@@ -4,9 +4,9 @@ require 'optparse'
 require 'logger'
 require 'ostruct'
 
-$LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
+$LOAD_PATH.unshift File.dirname(__FILE__) + '/../ruby'
 require 'phoenix/evaluation_framework'
-Dir[File.dirname(__FILE__) + '/../lib/phoenix/disambiguators/*.rb'].each { |d| load d }
+Dir[File.dirname(__FILE__) + '/../ruby/phoenix/disambiguators/*.rb'].each { |d| load d }
 
 $logger ||= Logger.new(STDOUT)
 $verbose = false

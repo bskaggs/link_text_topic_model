@@ -1,5 +1,5 @@
 #!/usr/bin/env jruby
-#!/opt/jruby/bin/jruby -J-Djava.library.path=/opt/hadoop/build/native/Linux-amd64-64/lib
+#!/opt/jruby/bin/jruby -J-Djava.library.path=/opt/hadoop/build/native/Linux-amd64-../ruby
 #Extracts links from pages, normalizes them, and builds indices
 
 $LOAD_PATH.unshift File.dirname(__FILE__) + '/../ruby'

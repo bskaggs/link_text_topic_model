@@ -1,4 +1,4 @@
 #!/bin/bash
 DIRNAME=$(cd `dirname $0` && pwd)
-hadoop jar $DIRNAME/../lib/phoenix.jar phoenix.LinkFixer -D mapred.speculative.execution=false "$@"
+hadoop jar $DIRNAME/../ruby/phoenix.jar phoenix.LinkFixer -D mapred.speculative.execution=false "$@"
 

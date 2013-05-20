@@ -1,5 +1,5 @@
 #!/bin/bash
 DIRNAME=$(cd `dirname $0` && pwd)
-LIBDIR=$DIRNAME/../lib
-HADOOP_CLASSPATH=$LIBDIR/trove-3.0.0rc2.jar hadoop jar $DIRNAME/../lib/phoenix.jar phoenix.CompressLinkTextIndexer -libjars $LIBDIR/lucene-core-3.0.3.jar,$LIBDIR/trove-3.0.0rc2.jar -D mapred.speculative.execution=false -D mapred.child.java.opts=-Xmx8024M "$@"
+LIBDIR=$DIRNAME/../ruby
+HADOOP_CLASSPATH=$LIBDIR/trove-3.0.0rc2.jar hadoop jar $DIRNAME/../ruby/phoenix.jar phoenix.CompressLinkTextIndexer -libjars $LIBDIR/lucene-core-3.0.3.jar,$LIBDIR/trove-3.0.0rc2.jar -D mapred.speculative.execution=false -D mapred.child.java.opts=-Xmx8024M "$@"
 

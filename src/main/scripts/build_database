@@ -1,7 +1,7 @@
 #!/usr/bin/env jruby
 #Builds the initial database from xml dumps
 
-$LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
+$LOAD_PATH.unshift File.dirname(__FILE__) + '/../ruby'
 require 'rubygems'
 require 'phoenix/magic_xml'
 require 'find'

@@ -1,4 +1,4 @@
 #!/bin/bash
 DIRNAME=$(cd `dirname $0` && pwd)
 LANG_DIR=$1
-/opt/hadoop/bin/hadoop jar $DIRNAME/../lib/phoenix.jar phoenix.SequenceFileSorter -D mapred.child.java.opts=-Xmx6024M -D mapred.input.dir=$LANG_DIR/unsorted_decompressed_sampler_results -D mapred.output.dir=$LANG_DIR/sorted_decompressed_sampler_results -D mapred.speculative.execution=false
+/opt/hadoop/bin/hadoop jar $DIRNAME/../ruby/phoenix.jar phoenix.SequenceFileSorter -D mapred.child.java.opts=-Xmx6024M -D mapred.input.dir=$LANG_DIR/unsorted_decompressed_sampler_results -D mapred.output.dir=$LANG_DIR/sorted_decompressed_sampler_results -D mapred.speculative.execution=false

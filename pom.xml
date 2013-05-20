@@ -2,7 +2,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.github.bskaggs</groupId>
-  <artifactId>phoenix</artifactId>
+  <artifactId>link_text_topic_model</artifactId>
   <version>1.0-SNAPSHOT</version>
   <packaging>jar</packaging>
   <name>disambiguator</name>
@@ -12,8 +12,17 @@
   </properties>
   <repositories>
     <repository>
-      <id>rubygems-release</id>
+      <id>rubygems-proxy</id>
+      <name>Rubygems Proxy</name>
       <url>http://rubygems-proxy.torquebox.org/releases</url>
+      <layout>default</layout>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>fale</enabled>
+        <updatePolicy>never</updatePolicy>
+      </snapshots>
     </repository>
   </repositories>
   <build>

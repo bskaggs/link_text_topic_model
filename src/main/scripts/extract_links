@@ -1,7 +1,7 @@
 #!/usr/bin/env jruby
 #Extracts links from pages, normalizes them, and builds indices
 
-$LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
+$LOAD_PATH.unshift File.dirname(__FILE__) + '/../ruby'
 require 'rubygems'
 require 'phoenix/extraction/link_extractor'
 require 'set'

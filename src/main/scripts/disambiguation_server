@@ -2,7 +2,7 @@
 require 'rubygems'
 require 'json'
 require 'logger'
-$LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
+$LOAD_PATH.unshift File.dirname(__FILE__) + '/../ruby'
 require 'phoenix/hadoop'
 require 'phoenix/wiki/wiki'
 require 'set'
