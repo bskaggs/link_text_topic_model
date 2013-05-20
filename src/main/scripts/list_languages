@@ -1,0 +1,12 @@
+#!/usr/bin/env ruby
+require 'open-uri'
+require 'set'
+
+langs = Set.new
+open('http://download.wikipedia.org/backup-index.html') do |f|
+  f.read.scan(/a href="([a-z_]+)wiki\//) do |x|
+    langs << x[0].gsub(/_/, '-')
+  end
+end
+langs.to_a.sort.each {|x| puts x}
+

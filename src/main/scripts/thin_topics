@@ -1,0 +1,15 @@
+#!/usr/bin/env ruby
+$last_topic = -1
+$last = []
+tail = 50
+while gets
+  parts = $_.chomp.split("\t")
+  if $last_topic != parts[0]
+    puts $last[-tail..-1]
+    $last = []
+  end
+  parts[2].gsub!(/^[^:]*:/, '')
+  $last << parts.join("\t")
+  $last_topic = parts[0]
+end
+puts $last[-tail..-1]

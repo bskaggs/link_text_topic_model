@@ -1,0 +1,4 @@
+#!/bin/bash
+DIRNAME=$(cd `dirname $0` && pwd)
+hadoop jar $DIRNAME/../lib/phoenix.jar phoenix.ShowArticle "$@"
+

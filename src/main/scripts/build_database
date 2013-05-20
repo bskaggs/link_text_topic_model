@@ -1,0 +1,147 @@
+#!/usr/bin/env jruby
+#Builds the initial database from xml dumps
+
+$LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
+require 'rubygems'
+require 'phoenix/magic_xml'
+require 'find'
+
+require 'zlib'
+require 'optparse'
+require 'logger'
+require 'benchmark'
+
+require 'java'
+require 'phoenix/hadoop'
+require 'phoenix/extraction/namespace_extractor'
+
+data_list = []
+data = nil
+table = "wikipedia"
+language_file = nil
+output_dir = nil
+$logger ||= Logger.new(STDOUT)
+ARGV.options do |o|
+  script_name = File.basename($0)
+  o.banner = "Usage: #{script_name} [OPTIONS]"
+  o.on("-d", "--data [x,y,z]", Array, "List of dump files and/or directories.") { |d| data = d }
+  o.on("-l", "--languages [FILE]", String, "Language file to use.") { |l| language_file = l }
+  o.on("-o", "--output DIR", String, "Output directory in HDFS to use.") { |o| output_dir = o }
+  o.on_tail("-h", "--help", "Show this help message.") { puts o; exit }
+  o.parse!
+  unless table
+    puts o; exit
+  end
+  unless language_file
+    puts "Language file required."
+    exit
+  end
+  unless output_dir
+    puts "Ouput directory required"
+    exit
+  end
+end
+
+import org.apache.hadoop.fs.Path
+output_dir = Path.new(output_dir)
+(data || []).each do |file|
+  Find.find(file) do |path|
+    data_list << path if path =~ /(^|\/)([a-z]+)wiki-(\d+)-pages-articles.xml/
+  end
+end
+
+def open_archive(path) 
+  if path =~ /\.bz2\Z/
+    IO.popen("bzcat #{path}") do |b|
+      yield b
+    end
+  elsif path =~ /\.gz\Z/
+    Zlib::GzipReader.open(path) do |b|
+      yield b
+    end
+  elsif path =~ /\.xml\Z/
+    File.open(path) do |b|
+      yield b
+    end
+  elsif
+    raise "Archive type not supported"
+  end
+end
+
+files = Hash.new { |h,k| h[k] = [] } 
+namespace_resolvers = Hash.new { |h,k| h[k] = NamespaceResolver.new }
+data_list.each do |path|
+  if path =~ /(^|\/)([a-z]+)wiki-(\d+)-pages-articles\.xml(\.(gz|bz2))?$/
+    lang = $2
+    files[lang] <<  path 
+    open_archive(path) do |b|
+      $logger.info("Getting namespaces for #{path}...")
+      ne = NamespaceExtractor.new(lang)
+      namespace_resolvers[lang] = ne.extract(b)
+    end
+  end
+end
+
+import org.apache.hadoop.io.SequenceFile
+import org.apache.hadoop.io.Text
+import org.apache.hadoop.io.MapWritable
+import org.apache.hadoop.fs.FileSystem
+conf = Hadoop.configuration 
+fs = FileSystem.get(conf)
+language_seq = Path.new(output_dir, "languages.seq")
+ns_file=SequenceFile.createWriter(fs, conf, language_seq, Text.java_class, MapWritable.java_class)
+File.open(language_file) do |f|
+  while f.gets
+    lang = $_.chomp
+    nr = namespace_resolvers[lang]
+    v = nr.namespace_ids.invert
+    v[0] = ""
+    map = MapWritable.new
+    v.keys.each do |k|
+      map.put(Text.new(k.to_s.to_java_bytes), Text.new(v[k].to_java_bytes))
+    end
+    ns_file.append(Text.new(lang.to_java_bytes), map);
+  end
+end
+ns_file.close
+
+$logger.info(Benchmark.measure do
+  namespace_resolvers.keys.sort.each do |lang|
+    $logger.info "Processing #{lang}"
+    start_time = Time.now
+    count = 0
+    nr = namespace_resolvers[lang]
+    files[lang].each do |file|
+      file =~ /(^|\/)([a-z]+)wiki-(\d+)-pages-articles\.xml(\.(gz|bz2))?$/
+      date = $3
+      puts "Date: #{date}"
+      table = "#{lang}_#{date}"
+      out_file_name = Path.new(output_dir, table)
+      out_file_name = Path.new(out_file_name, "unsorted_text.seq")
+      sequence_file = SequenceFile.createWriter(fs, conf, out_file_name, Text.java_class, Text.java_class) 
+      open_archive(file) do |b|
+        XML.parse_as_twigs(b) do |node|
+          case node.name
+          when :page
+            $logger.info([lang, count, count / (Time.now - start_time)].join("\t")) if (count += 1) % 10000 == 0
+            begin 
+              node.complete!
+            rescue REXML::ParseException => msg
+              puts msg
+              exit
+            end
+
+            revision = node.child(:revision)
+            text = revision[:@text]
+            
+            key = Text.new("#{lang}:#{node[:@title]}".to_java_bytes)
+            value = Text.new(text.to_java_bytes)
+            sequence_file.append(key, value)
+          end
+        end
+      end
+      sequence_file.close
+    end
+  end
+end)
+$logger.info("Done.")

@@ -1,0 +1,21 @@
+#!/bin/bash
+WIKI_DATE=20130501
+WIKI_LANGUAGE=simple
+XML_FILE=~/Downloads/${WIKI_LANGUAGE}wiki-${WIKI_DATE}-pages-articles.xml.bz2
+WIKI_DIR=${WIKI_LANGUAGE}/${WIKI_LANGUAGE}_${WIKI_DATE}
+export JAVA_MEM=-Xmx600M
+export HADOOP_HEAPSIZE=600
+bin/build_database -d $XML_FILE -l data/languages.txt -o $WIKI_LANGUAGE
+bin/sort_database $WIKI_DIR
+bin/extract_links -r $WIKI_LANGUAGE -t ${WIKI_LANGUAGE}_${WIKI_DATE} -m "disambig,Airport disambig,Callsigndis,Disambig-Chinese-char-title,Geodis,Hndis,Hndis-cleanup,Hospitaldis,Letter disambig,Letter-NumberCombDisambig,Mathdab,MolFormDisambig,Numberdis,Schooldis,Species Latin name disambiguation,WP disambig,SIA,Mountainindex,Roadindex,Shipindex,Sportindex,Surname,Given name"
+bin/fix_links $WIKI_DIR
+bin/compress_links $WIKI_DIR
+bin/simplify_links $WIKI_DIR
+bin/generate_dab_lists -w $WIKI_LANGUAGE -t ${WIKI_LANGUAGE}_${WIKI_DATE}
+bin/sort_dictionaries $WIKI_DIR
+
+bin/index_link_text $WIKI_DIR
+bin/compress_link_text_index $WIKI_DIR
+bin/gibbs_sample_links -D disambiguate_by_text=true -D num_topics=1000 $WIKI_DIR
+
+bin/disambiguation_server $WIKI_LANGUAGE ${WIKI_LANGUAGE}_${WIKI_DATE} 999

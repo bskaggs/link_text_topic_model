@@ -1,0 +1,5 @@
+*.swp
+.classpath
+.settings
+.metadata
+target

@@ -1,0 +1,134 @@
+#!/usr/bin/env jruby
+#Extracts links from pages, normalizes them, and builds indices
+
+$LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
+require 'rubygems'
+require 'phoenix/extraction/link_extractor'
+require 'set'
+require 'phoenix/wiki/wiki'
+require 'optparse'
+require 'phoenix/extraction/wiki_parser'
+require 'logger'
+
+tables = nil
+extract = true
+root = nil
+template_names = ["disambig"]
+$logger ||= Logger.new(STDOUT)
+ARGV.options do |o|
+  script_name = File.basename($0)
+  o.banner = "Usage: #{script_name} [OPTIONS]"
+  o.on("-t", "--table TABLE1,TABLE2", Array, "Tables to use.") { |b| tables = b }
+  o.on("-r", "--root ROOT", String , "Wiki root.") { |r| root = r }
+  o.on("-m", "--templates TEMPLATE1,TEMPLATE2", Array, "Disambiguation templates. Default='#{template_names}'") { |t| template_names = t }
+  o.on_tail("-h", "--help", "Show this help message.") { puts o; exit }
+  o.parse!
+  unless tables && root
+    puts o; exit
+  end
+end
+
+#create regexp for template
+regexps = template_names.map do |t| 
+  parts = t.gsub(/(\s|_)+/, ' ').strip.split(/\s+/)
+  
+  first_word = parts.shift
+  first_char = first_word[0..0]
+  parts.unshift(first_word[1..-1])
+  "([#{first_char.upcase}#{first_char.downcase}]#{parts.map { |x| Regexp.escape(x) }.join('(_|\s)+')})"
+end
+template_regexp = Regexp.new('\{\{\s*(' + regexps.join("|") + ')(\s*\|[^\}\{\|]*)*\s*\}\}')
+
+
+$logger.info("Regexp template: #{template_regexp}")
+
+wiki = Wiki.new(root)
+
+import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.io.Text
+import org.apache.hadoop.io.NullWritable
+import org.apache.hadoop.fs.Path
+
+import org.apache.hadoop.io.SequenceFile
+import org.apache.hadoop.io.MapFile
+import org.apache.hadoop.io.compress.GzipCodec
+
+conf = Hadoop.configuration
+
+fs = FileSystem.get(conf)
+le = LinkExtractor.new(wiki.namespaces, wiki.inverse_namespaces)
+tables.each do |table_name|
+  count = 0
+  page_link_count = 0
+  cat_link_count = 0
+  not_found_count = 0
+  red_link_count = 0
+  dab_count = 0
+  
+  table_dir = Path.new(root, table_name)
+  fs.mkdirs(table_dir)
+  links = MapFile::Writer.new(conf, fs, Path.new(table_dir, "sorted_out_links").to_s, Text.java_class, Text.java_class)
+  redirects = MapFile::Writer.new(conf, fs, Path.new(table_dir, "sorted_redirects").to_s, Text.java_class, Text.java_class)
+  dabs = MapFile::Writer.new(conf,fs, Path.new(table_dir, "sorted_dabs").to_s, Text.java_class, Text.java_class)
+
+  $logger.info("Preparing to fetch text...")
+  text_reader = MapFile::Reader.new(fs, File.join(table_dir.to_s, "sorted_text/part-r-00000"), conf)
+  
+  $logger.info("Executing...")
+  while text_reader.next(article_title_text = Text.new, article_value = Text.new)
+    $logger.info("Start!") if count == 0
+    article_title = le.title_from_string(nil, String.from_java_bytes(article_title_text.get_bytes), 0)
+    language = article_title.language
+    
+    text = String.from_java_bytes(article_value.get_bytes)
+    ($logger.info("Skipping '#{article_title}' due to length of title"); next) if article_title.short_title.length > 255
+    $logger.info("Page:#{count}\tpagelinks:#{page_link_count}\tredlinks:#{red_link_count}\tdabpages:#{dab_count}") if (count += 1) % 1000 == 0
+    stripped_text = WikiParser.strip_wiki(text)
+    if stripped_text =~ /\A#REDIRECT\s*\[\[.*?\]\]/i
+      first_link = true
+      le.process_links(article_title, $&) do |link|
+        break unless first_link
+        link_title = link.title
+        #skip really long links
+        next if link_title.short_title.length > 255
+        red_link_count += 1
+        link_string = le.cannonicalize(link_title)
+        redirects.append(article_title_text, Text.new(link_string.to_java_bytes))
+        first_link = false
+      end
+    else
+      if article_title.namespace_id == 0
+        if WikiParser.strip_comments(text) =~ template_regexp
+          dab_count += 1
+          dabs.append(article_title_text, Text.new($&.to_java_bytes))
+        end
+      end
+      link_map = Hash.new { |h,k| h[k] = Set.new }
+      le.process_links(article_title, stripped_text) do |link|
+        link_title = link.title
+        #skip really long links
+        next if link_title.short_title.length > 255
+        if link.colon
+          link_map[le.cannonicalize(link_title)] << link.display
+          page_link_count += 1
+        elsif link_title.language != language
+          #lang_link_count += 1
+        elsif link_title.namespace_id == 14 && link_title.language == language
+          #cat_link_count += 1
+        elsif link_title.namespace_id == 6 && link_title.language == language
+          #img_link_count += 1
+        else
+          link_map[le.cannonicalize(link_title)] << link.display
+          page_link_count += 1
+        end
+      end
+      link_map.each do |k,v|
+        val = v.to_a.sort.join("\t") 
+        links.append(article_title_text, Text.new([k,val].join("\t").to_java_bytes))
+      end
+    end
+  end
+  links.close
+  redirects.close
+  dabs.close
+end

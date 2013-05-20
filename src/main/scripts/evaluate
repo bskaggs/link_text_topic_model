@@ -1,0 +1,75 @@
+#!/usr/bin/env jruby
+require 'set'
+require 'optparse'
+require 'logger'
+require 'ostruct'
+
+$LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
+require 'phoenix/evaluation_framework'
+Dir[File.dirname(__FILE__) + '/../lib/phoenix/disambiguators/*.rb'].each { |d| load d }
+
+$logger ||= Logger.new(STDOUT)
+$verbose = false
+score_file = nil
+options = OpenStruct.new
+options.root = nil
+options.table = nil
+options.class_file = "classes.txt"
+options.correct_file = "correct.txt"
+options.evaluation_class = nil
+options.normalize = false
+options.skip = 0
+options.out_score_file = nil
+options.svm_rank_file = nil
+options.top = 1
+classes = EvaluationFramework.registered_plugins.map { |x| x.to_s }.sort
+ARGV.options do |o|
+  script_name = File.basename($0)
+  o.banner = "Usage: #{script_name} [OPTIONS]"
+  o.on("-t", "--table TABLE", String, "Database file to use.") { |t| options.table = t }
+  o.on("-r", "--root ROOT", String, "Working directory.") { |r| options.root = r }
+  o.on("--classes FILE", String, "Class file to use. Default=#{options.class_file}") { |c| options.class_file = c }
+  o.on("--correct FILE", String, "Correct file to use. Default=#{options.correct_file}") { |c| options.correct_file = c }
+  o.on("--disambiguator CLASS", String, *(["Method to use, one of:"] + classes.map { |x| "  #{x}" }))  {|m| options.evaluation_class = m }
+  o.on("--top K", Integer, "Score correct answer if in top K, rather than just top 1") { |t| options.top = t }
+  o.on("-v", "--verbose [FREQ]", Integer, "Verbose output, every FREQ lines (default = 1)") { |v| $verbose = v || 1}
+  o.on("-s", "--skip LINES", Integer, "Number of lines to skip") { |s| options.skip = s}
+  o.separator ""
+  o.separator("The following options are disambiguator specific")
+  EvaluationFramework.registered_plugins.each { |x| o.separator("  #{x}:"); x.register_options(o, options); o.separator "" }
+  o.separator ""
+  o.separator("The following options are for generating score files")
+  o.on("--outscore FILE", String, "Generate weighted score file rather than evaluate.") { |f| options.out_score_file = f }
+  o.on("--roc FILE", String, "Save data to generate a ROC plot.") { |f| options.roc_file = f }
+  o.on("--svmfile FILE", String, "Generate svm rank file rather than evaluate.") { |f| options.svm_rank_file = f }
+  o.on("--disambiguators CLASS1,CLASS2", Array, "Methods to use, any subset of the above disambiguator list") {|m| options.generation_classes = m }
+  o.on_tail("-h", "--help", "Show this help message.") { puts o; exit }
+  o.parse!
+  unless options.root && options.table  && ((options.evaluation_class && classes.include?(options.evaluation_class)) || (options.generation_classes && (options.generation_classes - classes).empty?))
+    puts o; exit
+  end
+end
+options.table =~ /\A(.*?)_/
+options.language = $1
+$logger.info("Options: #{options.inspect}")
+if options.svm_rank_file
+  scorers = options.generation_classes.map { |c| Kernel.const_get(c).new(options) }
+  EvaluationFramework.generate_svm_rank_file(scorers, options)
+elsif options.out_score_file
+  scorers = options.generation_classes.map { |c| Kernel.const_get(c).new(options) }
+  EvaluationFramework.generate_scores(scorers, options)
+else
+  evaluator_class = Kernel.const_get(options.evaluation_class)
+  evaluator = evaluator_class.new(options)
+  (puts "ROC file exists!"; exit) if options.roc_file && File.exists?(options.roc_file)
+  correct, total, scores_correct = evaluator.evaluate
+  puts "#{correct} correct out of #{total}"
+  if options.roc_file
+    File.open(options.roc_file, "w") do |f|
+      scores_correct.each do |s|
+        f.puts([s[1] ? 1 : 0, s[0]].join("\t"))
+
+      end
+    end
+  end
+end

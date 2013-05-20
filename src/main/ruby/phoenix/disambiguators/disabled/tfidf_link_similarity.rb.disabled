@@ -1,0 +1,48 @@
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'wiki'
+#require 'wiki_parser'
+require 'evaluation_framework'
+require 'set'
+require 'tfidf'
+class TFIDFLinkSimilarity < EvaluationFramework
+  def initialize(options)
+    super(options)
+    @db = @options.db
+    @wiki = Wiki.new(@db)
+    @parser = WikiParser.new(@wiki, @options.language)
+    @last_dab = nil
+    
+    #load tfidf from links
+    @tfidf = TFIDF.new(@parser, @options.language)
+    @tfidf.document_count = @wiki.document_count
+    tc = @tfidf.term_counts
+    @wiki.all_link_counts(true) do |to_id, count|
+      tc[to_id] = count
+    end
+    @tfidf.done_adding
+  end
+
+  def self.register_options(o, options)
+  end
+
+  #find class of links with the most inlinks
+  def disambiguate(dab_id, from_in)
+    unless @last_dab == dab_id
+      @vectors = @classes[dab_id].map { |links| links.map { |link| link_vectorize(link) } }
+      @last_dab = dab_id
+    end
+    vector = link_vectorize(from_in)
+    scores = @vectors.map { |vs| vs.map { |v| @tfidf.similarity(v,vector) }.max}
+    (0...scores.length).max { |a,b| scores[a] <=> scores[b] }
+  end
+
+  def link_vectorize(from_id)
+    v = Hash.new { |h,k| h[k] = 0 }
+    @wiki.get_links(from_id,true).each { |x| v[x] += 1}
+    #puts "v: " + v.inspect
+    result = @tfidf.scale(v)
+    #puts "scale: " + result.inspect
+    result
+  end
+end

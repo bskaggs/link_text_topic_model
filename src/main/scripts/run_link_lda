@@ -1,0 +1,10 @@
+#!/bin/bash
+#raw bzip2 file is $1
+#working dir is $2
+#hdfs dir is $3
+DIRNAME=$(cd `dirname $0` && pwd)
+LIBDIR=$DIRNAME/../lib
+JAR=$LIBDIR/phoenix.jar
+PYTHONIOENCODING=utf_8 python -m gensim.corpora.wikicorpus $1 $2 | hadoop jar $JAR phoenix.StreamToHdfs $3/gensim_titles.txt
+PYTHONIOENCODING=utf_8 python $DIRNAME/lda.py $2 | hadoop jar $JAR phoenix.GensimLDAMapFileSaver $3/gensim_link_titles.txt $3/unsorted_link_lda.seq
+hadoop jar $JAR phoenix.SequenceFileSorter -D mapreduce.input.fileinputformat.inputdir=$3/unsorted_link_lda.seq -D mapreduce.output.fileoutputformat.outputdir=$3/sorted_link_lda

@@ -1,0 +1,74 @@
+#!/usr/bin/env jruby
+#!/opt/jruby/bin/jruby -J-Djava.library.path=/opt/hadoop/build/native/Linux-amd64-64/lib
+#Extracts links from pages, normalizes them, and builds indices
+
+$LOAD_PATH.unshift File.dirname(__FILE__) + '/../ruby'
+require 'rubygems'
+require 'phoenix/extraction/link_extractor'
+require 'set'
+require 'phoenix/wiki/wiki'
+require 'optparse'
+require 'phoenix/extraction/wiki_parser'
+require 'logger'
+
+tables = nil
+extract = true
+root = nil
+$logger ||= Logger.new(STDOUT)
+ARGV.options do |o|
+  script_name = File.basename($0)
+  o.banner = "Usage: #{script_name} [OPTIONS]"
+  o.on("-t", "--table TABLE1,TABLE2", Array, "Tables to use.") { |b| tables = b }
+  o.on("-r", "--root ROOT", String , "Wiki root.") { |r| root = r }
+  o.on_tail("-h", "--help", "Show this help message.") { puts o; exit }
+  o.parse!
+  unless tables && root
+    puts o; exit
+  end
+end
+
+wiki = Wiki.new(root)
+
+import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.io.Text
+import org.apache.hadoop.io.NullWritable
+import org.apache.hadoop.fs.Path
+
+import org.apache.hadoop.io.SequenceFile
+import org.apache.hadoop.io.MapFile
+import org.apache.hadoop.io.compress.GzipCodec
+
+conf = Hadoop.configuration
+
+fs = FileSystem.get(conf)
+
+le = LinkExtractor.new(wiki.namespaces, wiki.inverse_namespaces)
+tables.each do |table_name|
+  count = 0
+  
+  table_name =~ /\A(.*?)_/
+  language = $1
+  parser = WikiParser.new(wiki, language)
+  table_dir = Path.new(root, table_name)
+  fs.mkdirs(table_dir)
+  plain_text_file = MapFile::Writer.new(conf, fs, Path.new(table_dir, "sorted_plain_text").to_s, Text.java_class, Text.java_class)
+
+  $logger.info("Preparing to fetch text...")
+  text_reader = MapFile::Reader.new(fs, File.join(table_dir.to_s, "sorted_text/part-r-00000"), conf)
+  
+  $logger.info("Executing...")
+  while text_reader.next(article_title_text = Text.new, article_value = Text.new)
+    $logger.info("Start!") if count == 0
+    article_title = le.title_from_string(nil, String.from_java_bytes(article_title_text.get_bytes), 0)
+    language = article_title.language
+    text = String.from_java_bytes(article_value.get_bytes)
+    ($logger.info("Skipping '#{article_title}' due to length of title"); next) if article_title.short_title.length > 255
+    $logger.info("Page:#{count}") if (count += 1) % 1000 == 0
+    unless article_title.namespace_id != 0 || text =~ /\A#REDIRECT\s*\[\[.*?\]\]/i
+      #skip redirects and non main pages
+      stripped_text = parser.convert_links_to_text!(WikiParser.strip_wiki(text), article_title)
+      plain_text_file.append(article_title_text, Text.new(stripped_text.to_java_bytes))
+    end
+  end
+  plain_text_file.close
+end

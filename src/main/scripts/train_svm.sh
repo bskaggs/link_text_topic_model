@@ -1,0 +1,1 @@
+bin/evaluate -r english -t en_20100904 --classes en_20110115.classes --correct en_20110115.correct --divergence l1 --svmfile base_lda_relate_rand_tfidf.txt --disambiguators Baseline,LDADocumentSimilarity,LinkRelatedness,RandomWalkSimilarity,TFIDFDocumentSimilarity

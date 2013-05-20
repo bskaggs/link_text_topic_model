@@ -1,0 +1,6 @@
+#!/bin/bash
+DIRNAME=$(cd `dirname $0` && pwd)
+LIBDIR=$DIRNAME/../lib
+
+JAR=$LIBDIR/phoenix.jar
+HADOOP_CLASSPATH=$LIBDIR/trove-3.0.0rc2.jar hadoop jar $JAR phoenix.sampler.PrintTopics "$@" | sort -n -k1 -n -k2 

@@ -1,0 +1,123 @@
+#!/usr/bin/env jruby 
+require 'rubygems'
+
+$LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
+require 'phoenix/hadoop'
+require 'phoenix/wiki/wiki'
+require 'phoenix/extraction/wiki_parser'
+require 'set'
+
+require 'optparse'
+require 'logger'
+
+$logger ||= Logger.new(STDOUT)
+old_table_name = nil
+new_table_name = nil
+working = nil
+
+dab_class_file = "classes.txt"
+correct_answers_file = "correct.txt"
+ARGV.options do |o|
+  script_name = File.basename($0)
+  o.banner = "Usage: #{script_name} [OPTIONS]"
+  o.on("-o", "--old-table TABLE", String, "Database file to use.  Default=#{old_table_name}") { |b| old_table_name = b }
+  o.on("-n", "--new-table TABLE", String, "Database file to use.  Default=#{new_table_name}") { |b| new_table_name = b }
+  o.on("-d", "--classes FILE", String, "Output disambiguation classes file.  Default=#{dab_class_file}") { |b| dab_class_file = b }
+  o.on("-c", "--correct FILE", String, "Output correct answers file.  Default=#{correct_answers_file}") { |b| correct_answers_file = b }
+  o.on("-w", "--working DIR", String, "Working directory") { |w| working = w }
+  o.on_tail("-h", "--help", "Show this help message.") { puts o; exit }
+  o.parse!
+  unless old_table_name && new_table_name && working
+    puts o; exit
+  end
+end
+
+import java.util.HashMap
+import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.fs.Path
+import org.apache.hadoop.io.SequenceFile
+import org.apache.hadoop.io.MapFile
+import org.apache.hadoop.io.Text
+
+JLink = Java::Phoenix::Link
+old_table_name =~ /\A(.*)_\d+\Z/
+language = $1
+
+wiki = Wiki.new(working)
+old_parser = WikiParser.new(wiki, language)
+new_parser = WikiParser.new(wiki, language)
+link_extractor = old_parser.link_extractor
+
+conf = Hadoop.configuration
+fs = FileSystem.get(conf)
+dabs = [old_table_name, new_table_name].map do |table_name|
+  table_dir = Path.new(working, table_name)
+  dab_reader = MapFile::Reader.new(fs, Path.new(table_dir, "sorted_dabs").to_s, conf)
+  text = Text.new
+  val = Text.new
+  set = Set.new
+  while dab_reader.next(text, val)
+    set << text.to_s
+  end
+
+  puts set.size
+  dab_reader.close
+  set
+end.inject { |a,b| a.intersection(b) }
+classes = File.open(dab_class_file, "w")
+correct_answers = File.open(correct_answers_file, "w")
+old_redirect_file = MapFile::Reader.new(fs, Path.new(Path.new(Path.new(working), old_table_name), "sorted_redirects").to_s, conf)
+
+#load redirects
+old_redirects = HashMap.new
+while old_redirect_file.next(redirect_from = Text.new, redirect_to = Text.new)
+  old_redirects.put(redirect_from, redirect_to)
+end
+old_redirect_file.close
+puts "Old Redirects: #{old_redirects.size}"
+
+new_in_links_table = wiki.open_in_links(new_table_name)
+old_in_links_table = wiki.open_in_links(old_table_name)
+new_full_links_table = wiki.open_full_links(new_table_name)
+old_full_links_table = wiki.open_full_links(old_table_name)
+old_link_text_index = wiki.open_link_text_index(old_table_name)
+
+printed = Set.new
+dab_count = 0
+dabs.to_a.sort.each do |dab|
+  puts dab if dab_count % 1000 == 0
+  dab_count += 1
+  article_title = link_extractor.title_from_string(nil, dab, 0, false)
+  ignore = Set.new
+  old_in_links, new_in_links = [[old_in_links_table, old_full_links_table], [new_in_links_table, new_full_links_table]].map do |tables|
+    t,ft = *tables
+    in_links = {}
+    wiki.get_links(t, dab).each do |link|
+      set = (in_links[link] ||= Set.new)
+      (wiki.get_full_link(ft, link, dab) || "").split(/\t/).each { |l| set << l }
+    end
+    in_links
+  end
+
+  dropped_in_links = old_in_links.keys - new_in_links.keys
+  dropped_in_links.each do |in_id|
+    texts = old_in_links[in_id]
+    old_l, new_l = [old_full_links_table, new_full_links_table].map do|tt|
+      wiki.get_full_links(tt, in_id).select { |x| texts.include?(x[1]) }.map {|x| x[0] }
+    end
+    unless (new_l - old_l).empty?
+      texts = texts.to_a
+      if texts.size == 1
+        text = wiki.normalize_text(texts[0])
+        #added text, changed classes as well
+        correct_answers.puts [dab, text, in_id, old_l, new_l].inspect
+        unless printed.include?(text)
+          classes.puts [text, wiki.get_links_by_text(old_link_text_index, text).to_a].inspect
+          printed << text
+        end
+      end
+    end
+  end
+end
+correct_answers.close
+classes.close

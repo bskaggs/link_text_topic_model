@@ -1,0 +1,42 @@
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'wiki'
+#require 'wiki_parser'
+require 'evaluation_framework'
+require 'set'
+require 'tfidf'
+class StemmedTFIDFDocumentSimilarity < EvaluationFramework
+  def initialize(options)
+    super(options)
+    @db = @options.db
+    @wiki = Wiki.new(@db)
+    @parser = WikiParser.new(@wiki, @options.language)
+    @last_dab = nil
+    @tfidf = TFIDF.new(@parser, @db, @options.language, @options.stemmed, @options.scale, @options.stop_file)
+  end
+
+  def self.register_options(o, options)
+    options.scale = false
+    options.stemmed = false
+    options.stop_file = nil
+    o.on("--scale", "Rescale term vectors to length 1.") { |s| options.scale = s} 
+    o.on("--stem", "Stem words.") { |s| options.stemmed = s } 
+    o.on("--stop FILE", String, "Use stop word file") { |s| options.stop_file = s }
+  end
+
+  #find class of links with the most inlinks
+  def score(dab_id, from_id)
+    unless @last_dab == dab_id
+      @vectors = @classes[dab_id].map { |links| links.map { |link| @tfidf.vectorize(@wiki.fetch_text(link)) } }
+      @last_dab = dab_id
+    end
+    vector = @tfidf.vectorize(@wiki.fetch_text(from_id))
+    scores = @vectors.map { |vs| vs.map { |v| @tfidf.similarity(v,vector) }.max}
+  end
+
+  def disambiguate(dab_id, from_id)
+    scores = score(dab_id, from_id)
+    (0...scores.length).max { |a,b| scores[a] <=> scores[b] }
+  end
+
+end

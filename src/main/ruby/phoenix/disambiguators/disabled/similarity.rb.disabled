@@ -1,0 +1,38 @@
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'wiki'
+#require 'wiki_parser'
+require 'evaluation_framework'
+require 'set'
+class DocumentSimilarity < EvaluationFramework
+  def initialize(options)
+    super(options)
+    @db = @options.db
+    @wiki = Wiki.new(@db)
+    @parser = WikiParser.new(@wiki, @options.language)
+    @last_dab = nil
+  end
+
+  #find class of links with the most inlinks
+  def score(dab_id, from_id)
+    unless @last_dab == dab_id
+      @vectors = @classes[dab_id].map { |links| links.map { |link| vectorize(link) } }
+      @last_dab == dab_id
+    end
+    vector = vectorize(from_id)
+    scores = @vectors.map { |vs| vs.map { |v| similarity(v,vector) }.max}
+  end
+
+  def disambiguate(dab_id, from_id)
+    scores = score(dab_id, from_id)
+    (0...scores.length).max { |a,b| scores[a] <=> scores[b] }
+  end
+
+  def vectorize(id)
+    Set.new(@wiki.fetch_text(id).scan(/[àÀâÂçÇéÉèÈêÊëËîÎïÏôÔûÛùÙüÜÿŸA-Za-z]+/u))
+  end
+
+  def similarity(v1, v2)
+    v1.intersection(v2).size.to_f / v2.union(v1).size.to_f
+  end
+end

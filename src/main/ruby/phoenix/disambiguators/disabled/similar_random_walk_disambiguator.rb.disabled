@@ -1,0 +1,64 @@
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'wiki'
+#require 'wiki_parser'
+require 'evaluation_framework'
+require 'set'
+require 'random_walk'
+require 'lru'
+class DocumentSimilarityRandomWalk < EvaluationFramework
+  def initialize(options)
+    super(options)
+    @db = @options.db
+    @wiki = Wiki.new(@db)
+    page_links = (options.normalize ? "normalized_" : "") + "page_links"#"strengths"
+    to_sql = "SELECT pl.to_id, r.text FROM #{page_links} AS pl JOIN revisions AS r ON pl.to_id=r.page_id WHERE pl.from_id=?;"
+    $logger.info("To sql: #{to_sql}")
+    @to_text_handle = @db.prepare(to_sql);
+    @from_text_handle = @db.prepare("SELECT r.text FROM revisions AS r WHERE r.page_id = ? LIMIT 1;")
+    
+    @edge_cache = Hash.new do |h,id|
+      from_vector = nil
+      @from_text_handle.execute(id)
+      @from_text_handle.fetch do |row|
+        from_vector = vectorize(row[0].to_s) 
+      end
+      
+      edges = []
+      @to_text_handle.execute(id)
+      @to_text_handle.fetch do |row|
+        to_id = row[0].to_i
+        if to_id != id
+          edges << [to_id, similarity(from_vector, vectorize(row[1].to_s))]
+        end
+      end
+      h[id] = edges
+    end
+    @last_dab_id = nil
+  end
+  
+  def vectorize(text)
+    Set.new(text.scan(/[àÀâÂçÇéÉèÈêÊëËîÎïÏôÔûÛùÙüÜÿŸA-Za-z]+/u))
+  end
+
+  def similarity(v1, v2)
+    v1.intersection(v2).size.to_f / v2.union(v1).size.to_f
+  end
+
+
+  def disambiguate(dab_id, from_id)
+    if @last_dab_id != dab_id
+      @local_edge_cache = Hash.new do |h, id|
+        edges_and_weights = @edge_cache[id].select { |x| x[0] != dab_id }.transpose
+        edges_and_weights = [[], []] if edges_and_weights.length < 2
+        h[id] = edges_and_weights
+      end
+      @last_dab_id = dab_id
+    end
+    values = BookmarkColorer.color(from_id, 0.5, 0.01) do |id|
+      @local_edge_cache[id]  
+    end
+    scores = @classes[dab_id].map { |vs| vs.map { |v| values[v] || 0 }.max}
+    (0...scores.length).max { |a,b| scores[a] <=> scores[b] }
+  end
+end

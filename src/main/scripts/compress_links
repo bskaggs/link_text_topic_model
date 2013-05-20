@@ -1,0 +1,4 @@
+#!/bin/bash
+DIRNAME=$(cd `dirname $0` && pwd)
+LIBDIR=$DIRNAME/../lib
+HADOOP_CLASSPATH=$LIBDIR/trove-3.0.0rc2.jar:$LIBDIR/lucene-core-3.0.3.jar hadoop jar $LIBDIR/phoenix.jar phoenix.sampler.CompressLinks "$@"

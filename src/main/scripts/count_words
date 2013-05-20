@@ -1,0 +1,8 @@
+#!/bin/bash
+DIRNAME=$(cd `dirname $0` && pwd)
+LIBDIR=$DIRNAME/../lib
+
+JAR=$LIBDIR/phoenix.jar
+LUCENE=$LIBDIR/lucene-core-3.0.3.jar 
+HADOOP_CLASSPATH=$LUCENE hadoop jar $JAR phoenix.WordCounter -libjars $LUCENE "$@"
+

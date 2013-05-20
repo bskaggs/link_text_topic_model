@@ -1,0 +1,3 @@
+#!/bin/bash
+DIRNAME=$(cd `dirname $0` && pwd)
+$DIRNAME/print_plain_text $1 | $DIRNAME/../../vowpal_wabbit/vw --lda 100 --lda_alpha .01 --lda_rho .01 --lda_D 3435470 | $DIRNAME/save_lda $1

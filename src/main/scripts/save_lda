@@ -1,0 +1,8 @@
+#!/bin/bash
+DIRNAME=$(cd `dirname $0` && pwd)
+LIBDIR=$DIRNAME/../lib
+
+JAR=$LIBDIR/phoenix.jar
+LUCENE=$LIBDIR/lucene-core-3.0.3.jar 
+CONF="-D io.seqfile.compression.type=BLOCK"
+HADOOP_CLASSPATH=$LUCENE hadoop jar $JAR phoenix.LDAMapFileSaver $CONF $1/sorted_plain_text/data $1/sorted_lda_documents

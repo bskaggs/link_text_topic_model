@@ -1,0 +1,61 @@
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'wiki'
+#require 'wiki_parser'
+require 'set'
+require 'svmlightfile'
+require 'tempfile'
+require 'evaluation_framework'
+class SvmDisambiguator < EvaluationFramework
+  def initialize(options)
+    super(options)
+    @db = @options.db
+    @wiki = Wiki.new(@db)
+    @parser = WikiParser.new(@wiki, @options.language)
+    @model_files = Hash.new 
+    @ignore = Hash.new
+    #@classes = {@classes.keys[0] => @classes[@classes.keys[0]]}
+    @normalize = options.normalize
+    @classes.each do |dab_id, choices|
+      p dab_id
+      train_file = "svm_train/#{dab_id}.train"
+      model_file = "svm_train/#{dab_id}.model"
+      File.open(train_file, 'w') do |f|
+        svm = SVMLightFile.new(f)
+        ignore = Set.new
+        choices.each { |links| ignore.merge(links) }
+        choices.each_with_index do |links, i|
+          links.each do |link|
+            neighbors = @wiki.get_neighbors(link, nil, ignore, @normalize) 
+            neighbors.each do |k,v|
+              features = v.map { |pos| [pos, 1] }
+              svm.add_data(i + 1, features.uniq, k)
+            end
+          end
+        end
+        @ignore[dab_id] = ignore
+      end
+      @model_files[dab_id] = model_file
+      puts `svm/svm_multiclass_learn -c 0.01 #{train_file} #{model_file}`
+    end
+  end
+
+  #find class of links with the most inlinks
+  def disambiguate(dab_id, from_id)
+    @model_files[dab_id]
+    out = "svm_train/out.txt"
+    file = Tempfile.open('svm', 'svm_train')
+    svm = SVMLightFile.new(file)
+    neighbors = @wiki.get_neighbors(from_id, nil, @ignore[dab_id], @normalize)
+    neighbors.each do |k,v|
+      features = v.map { |pos| [pos, 1] }
+      svm.add_data(0, features.uniq, nil)
+    end
+    file.close
+    puts `svm/svm_multiclass_classify #{file.path} #{@model_files[dab_id]} #{out}`
+    line = File.readlines(out)[0]
+    puts line
+    return line.split(/\t/)[0].to_i - 1
+  end
+end
+

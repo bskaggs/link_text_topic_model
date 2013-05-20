@@ -1,0 +1,132 @@
+#!/usr/bin/env JAVA_MEM=-Xmx7G jruby
+require 'rubygems'
+require 'json'
+require 'logger'
+$LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
+require 'phoenix/hadoop'
+require 'phoenix/wiki/wiki'
+require 'set'
+$logger ||= Logger.new(STDOUT)
+$logger.info("Loading probabilities")
+
+import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.fs.Path
+import org.apache.hadoop.io.SequenceFile
+import org.apache.hadoop.io.Text
+java_import "phoenix.sampler.Dictionary"
+java_import "phoenix.sampler.LatentDisambiguator"
+
+conf = Hadoop.configuration
+
+fs = FileSystem.get(conf)
+root_dir = ARGV[0]
+table_name = ARGV[1]
+working = Path.new(Path.new(root_dir), table_name)
+
+language_prefix = table_name.split(/_/)[0] + ":"
+$logger.info("Language prefix: '#{language_prefix}'")
+
+wiki = Wiki.new(root_dir)
+
+#do these need to be mapfile readers instead?
+$logger.info("Loading articles")
+article_dictionary = wiki.open_article_dictionary(table_name)
+reverse_article_dictionary = wiki.open_reverse_article_dictionary(table_name)
+$logger.info("Loading text")
+text_dictionary = wiki.open_text_dictionary(table_name)
+
+latent_disambiguator = LatentDisambiguator.new
+latent_disambiguator.setConf(conf)
+#latent_disambiguator.setLimit(100000)
+latent_disambiguator.loadCountsAndSettings(ARGV[2].to_i, working)
+
+$logger.info("Loading dabs")
+dabs = Set.new
+dab_text = Text.new
+dab_file = wiki.open_dab_list(table_name)
+dab_value = Text.new
+while dab_file.next(dab_text, dab_value)
+  dabs << wiki.get_dictionary_number(article_dictionary, dab_text.to_s)
+end
+dab_file.close
+$logger.info("starting")
+
+require 'sinatra'
+set :reload, false
+
+mime_type :json, "application/json"
+set :root, File.join(File.dirname(__FILE__), '..')
+
+get "/foo" do
+  "bar"
+end
+
+get '/dab/dablinks' do
+  content_type :json
+  callback = params[:callback]
+  links = params[:links] || "{}"
+  
+  dab_titles = links.values.map { |link| link["title"] }.select do |title| 
+    full_title = language_prefix + title
+    num = wiki.get_dictionary_number(article_dictionary, full_title)
+    dabs.include?(num)
+  end
+  json = dab_titles.to_json
+  if callback
+    "#{callback}(#{json});"
+  else
+    json
+  end
+end
+
+get '/dab/dab' do
+  content_type :json
+  begin
+    callback = params[:callback]
+    from = params[:from]
+    all_links = params[:links]
+    i = params[:i].to_i
+    targets = []
+    texts = []
+    ambiguous = []
+    all_links.keys.sort_by { |x| x.to_i }.each do |link_index|
+      link = all_links[link_index.to_s] 
+      target = link['title']
+      text = link['text']
+      normalized_text = wiki.normalize_text(text) 
+      text_id = wiki.get_dictionary_number(text_dictionary, normalized_text)
+      target_id = wiki.get_dictionary_number(article_dictionary, language_prefix + target)
+      
+      if text_id != -1 && target_id != -1
+        texts << text_id
+        targets << target_id
+        ambiguous << dabs.include?(target_id)
+      end
+    end
+    p texts
+    p targets
+    p ambiguous
+    result = latent_disambiguator.sampleAndEmitProbabilities(from, i, targets, texts, ambiguous, 1000)
+    intArray = result.getIntArray
+    doubleArray = result.getDoubleArray
+
+    scores = []
+    (0...intArray.length).each do |i|
+      scores << [wiki.get_reverse_dictionary_name(reverse_article_dictionary, intArray[i]).sub(language_prefix, ''), doubleArray[i]]
+    end
+    scores = scores.sort_by { |x| -x[1] }
+    scores = scores[0..([10, scores.length].min)]
+    json = scores.to_json
+    $logger.info("Result: #{json}")
+    if callback
+      "#{callback}(#{json});"
+    else
+      json
+    end
+  rescue JSON::ParserError
+    STDERR.puts $!.inspect
+    "ERROR"
+  end
+end
+set :public, File.expand_path(File.join(File.dirname(__FILE__), '..', 'static_web'))
+#set :run, false

@@ -1,0 +1,6 @@
+#!/usr/bin/env ruby
+correct = 0
+while gets
+  correct += 1 if $_.split("\t")[0].to_i == 1
+  puts [$., correct.to_f / $.].join("\t")
+end

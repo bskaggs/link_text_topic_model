@@ -1,0 +1,107 @@
+#!/usr/bin/env jruby 
+# encoding: utf-8
+require 'rubygems'
+
+$LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
+require 'phoenix/hadoop'
+require 'phoenix/wiki/wiki'
+require 'phoenix/extraction/wiki_parser'
+require 'set'
+
+require 'optparse'
+require 'logger'
+
+$logger ||= Logger.new(STDOUT)
+old_table_name = nil
+working = nil
+ARGV.options do |o|
+  script_name = File.basename($0)
+  o.banner = "Usage: #{script_name} [OPTIONS]"
+  o.on("-t", "--table TABLE", String, "Database file to use.  Default=#{old_table_name}") { |b| old_table_name = b }
+  o.on("-w", "--working DIR", String, "Working directory") { |w| working = w }
+  o.on_tail("-h", "--help", "Show this help message.") { puts o; exit }
+  o.parse!
+  unless old_table_name && working
+    puts o; exit
+  end
+end
+
+import java.util.HashMap
+import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.fs.Path
+import org.apache.hadoop.io.SequenceFile
+import org.apache.hadoop.io.MapFile
+import org.apache.hadoop.io.Text
+import org.apache.hadoop.io.IntWritable
+
+java_import "phoenix.io.TextArrayWritable"
+java_import "phoenix.io.IntArrayWritable"
+java_import "phoenix.sampler.Dictionary"
+
+old_table_name =~ /\A(.*)_\d+\Z/
+language = $1
+
+wiki = Wiki.new(working)
+old_parser = WikiParser.new(wiki, language)
+link_extractor = old_parser.link_extractor
+
+conf = Hadoop.configuration
+fs = FileSystem.get(conf)
+
+puts "reading dab names..."
+#read dab article names
+table_dir = Path.new(working, old_table_name)
+dab_reader = MapFile::Reader.new(fs, Path.new(table_dir, "sorted_dabs").to_s, conf)
+text = nil
+val = Text.new
+dabs = Set.new
+while dab_reader.next(text = Text.new, val)
+  dabs << text
+end
+dab_reader.close
+
+old_redirect_file = MapFile::Reader.new(fs, Path.new(table_dir, "sorted_redirects").to_s, conf)
+
+puts "Loading redirects..."
+
+#load redirects
+old_redirects = HashMap.new
+while old_redirect_file.next(redirect_from = Text.new, redirect_to = Text.new)
+  old_redirects.put(redirect_from, redirect_to)
+end
+old_redirect_file.close
+
+old_table = MapFile::Reader.new(fs, Path.new(table_dir, "sorted_text/part-r-00000").to_s, conf)
+old_in_links_table = wiki.open_in_links(old_table_name)
+
+dictionary = Dictionary.new(SequenceFile::Reader.new(fs, Path.new(table_dir, "article_dictionary"), conf))
+puts "Parsing text..."
+dab_list_file = MapFile::Writer.new(conf, fs, Path.new(table_dir, "sorted_dabs_list").to_s, Text.java_class, TextArrayWritable.java_class) 
+dab_list_compressed_file = SequenceFile.createWriter(fs, conf, Path.new(table_dir, "compressed_dabs_list"), IntWritable.java_class, IntArrayWritable.java_class) 
+dab_count = 0
+dabs.to_a.sort.each do |dab|
+  puts dab if dab_count % 1000 == 0
+  dab_count += 1
+  text_bytes = old_table.get(dab, Text.new).get_bytes
+  text = String.from_java_bytes(text_bytes)
+  printed = false
+  article_title = link_extractor.title_from_string(nil, dab.to_s, 0, false)
+  links = Set.new
+  text.each_line do |line|
+    if line =~ /\A(:|#|\*)+/
+      old_parser.extract_links(article_title, line).each do |l|
+        full_title=wiki.title_to_string(l.title).to_java
+        row = Text.new(full_title)
+        redirect_to = old_redirects.get(row)
+        links << (redirect_to || row).to_s
+      end
+    end
+  end
+
+  link_nums = links.map { |l| n = dictionary.get_only(l.to_java); if n == 0 then nil else n end }.compact.sort
+  
+  dab_list_file.append(Text.new(dab), TextArrayWritable.new(links.to_a.sort.to_java(:string)))
+  dab_list_compressed_file.append(IntWritable.new(dictionary.get_only(dab.to_java)), IntArrayWritable.new(link_nums.to_java(:int)))
+end
+dab_list_file.close
+dab_list_compressed_file.close

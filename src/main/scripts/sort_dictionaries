@@ -1,0 +1,6 @@
+#!/bin/bash
+DIRNAME=$(cd `dirname $0` && pwd)
+LANG_DIR=$1
+/opt/hadoop/bin/hadoop jar $DIRNAME/../lib/phoenix.jar phoenix.SequenceFileSorter -D mapred.input.dir=$LANG_DIR/text_dictionary -D mapred.output.dir=$LANG_DIR/text_dictionary_sorted
+/opt/hadoop/bin/hadoop jar $DIRNAME/../lib/phoenix.jar phoenix.SequenceFileSorter -D mapred.input.dir=$LANG_DIR/article_dictionary -D mapred.output.dir=$LANG_DIR/article_dictionary_sorted
+/opt/hadoop/bin/hadoop jar $DIRNAME/../lib/phoenix.jar phoenix.SequenceFileSorter -D mapred.input.dir=$LANG_DIR/article_dictionary -D phoenix.sort.swap=true -D mapred.output.dir=$LANG_DIR/reverse_article_dictionary_sorted
